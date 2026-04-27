@@ -1,0 +1,76 @@
+#!/bin/sh
+set -eu
+
+SRC="/opt/pia-wg-watchdog/configs/wg0-creds.conf"
+OUT="/opt/pia-wg-watchdog/configs/wg0.conf"
+TMP="/opt/pia-wg-watchdog/configs/wg0.conf.tmp"
+
+[ -f "$SRC" ] || { echo "Missing $SRC"; exit 1; }
+
+PRIVATE_KEY="$(awk -F '= ' '/^PrivateKey/ {print $2}' "$SRC")"
+ADDRESS="$(awk -F '= ' '/^Address/ {print $2}' "$SRC")"
+PUBLIC_KEY="$(awk -F '= ' '/^PublicKey/ {print $2}' "$SRC")"
+ENDPOINT="$(awk -F '= ' '/^Endpoint/ {print $2}' "$SRC")"
+PSK="$(awk -F '= ' '/^PresharedKey/ {print $2}' "$SRC" || true)"
+
+: "${PRIVATE_KEY:?Missing PrivateKey}"
+: "${ADDRESS:?Missing Address}"
+: "${PUBLIC_KEY:?Missing PublicKey}"
+: "${ENDPOINT:?Missing Endpoint}"
+
+mkdir -p /opt/pia-wg-watchdog/configs
+chmod 700 /opt/pia-wg-watchdog/configs
+
+PSK_LINE=""
+if [ -n "${PSK:-}" ]; then
+  PSK_LINE="PresharedKey = ${PSK}"
+fi
+
+cat >"$TMP" <<CONF
+[Interface]
+PrivateKey = ${PRIVATE_KEY}
+MTU = 1380
+Address = ${ADDRESS}
+
+# keep gateway management on LAN
+PostUp = ip rule add from 10.10.2.2/32 lookup main priority 50
+PostDown = ip rule del from 10.10.2.2/32 lookup main priority 50 || true
+
+# PIA DNS must stay in tunnel
+PostUp = ip rule add to 10.0.0.243/32 lookup 51820 priority 60
+PostDown = ip rule del to 10.0.0.243/32 lookup 51820 priority 60 || true
+
+# local networks must stay off VPN
+PostUp = ip rule add to 10.10.2.0/24 lookup main priority 70
+PostUp = ip rule add to 10.10.10.0/24 lookup main priority 71
+PostUp = ip rule add to 192.168.100.0/24 lookup main priority 72
+
+PostDown = ip rule del to 10.10.2.0/24 lookup main priority 70 || true
+PostDown = ip rule del to 10.10.10.0/24 lookup main priority 71 || true
+PostDown = ip rule del to 192.168.100.0/24 lookup main priority 72 || true
+
+# explicit LAN routes in main table
+PostUp = ip route replace 10.10.0.0/16 via 10.10.2.1 dev eth0
+PostUp = ip route replace 192.168.100.0/24 via 10.10.2.1 dev eth0
+
+PostDown = ip route del 10.10.0.0/16 via 10.10.2.1 dev eth0 || true
+PostDown = ip route del 192.168.100.0/24 via 10.10.2.1 dev eth0 || true
+
+[Peer]
+PublicKey = ${PUBLIC_KEY}
+${PSK_LINE}
+Endpoint = ${ENDPOINT}
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 60
+CONF
+
+chmod 600 "$TMP"
+
+if [ -f "$OUT" ] && cmp -s "$TMP" "$OUT"; then
+  echo "wg0.conf unchanged"
+  rm -f "$TMP"
+  exit 0
+fi
+
+mv -f "$TMP" "$OUT"
+echo "wg0.conf updated: $OUT"

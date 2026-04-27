@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+PIA_ENV="/opt/pia-wg-watchdog/configs/wg0-creds.conf"
+LAN_GW="10.10.2.1"
+LAN_IF="eth0"
+
+get_endpoint_ip() {
+  [ -r "$PIA_ENV" ] || return 1
+  awk -F= '/WIREGUARD_ENDPOINT_IP=/{print $2}' "$PIA_ENV" | tr -d '\r' | head -n1
+}
+
+ENDPOINT="$(get_endpoint_ip || true)"
+
+if [ -n "${ENDPOINT:-}" ]; then
+  ip route replace "${ENDPOINT}/32" via "$LAN_GW" dev "$LAN_IF"
+fi
+
+exit 0

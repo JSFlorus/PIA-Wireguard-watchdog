@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+LAN_IF="eth0"
+VPN_IF="wg0"
+LAN_NET="10.10.2.0/24"
+LAN_BIG="10.0.0.0/8"
+MGMT_NET="192.168.100.0/24"
+
+iptables -F
+iptables -t nat -F
+iptables -t mangle -F
+iptables -X
+
+iptables -P INPUT ACCEPT
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# clamp TCP MSS for traffic going into VPN
+iptables -t mangle -A FORWARD -o "$VPN_IF" -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+
+# established/related first
+iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# LAN -> VPN
+iptables -A FORWARD -s "$LAN_NET" -i "$LAN_IF" -o "$VPN_IF" -j ACCEPT
+
+# LAN <-> internal 10.0.0.0/8
+iptables -A FORWARD -s "$LAN_NET" -d "$LAN_BIG" -i "$LAN_IF" -o "$LAN_IF" -j ACCEPT
+iptables -A FORWARD -s "$LAN_BIG" -d "$LAN_NET" -i "$LAN_IF" -o "$LAN_IF" -j ACCEPT
+
+# LAN <-> 192.168.100.0/24
+iptables -A FORWARD -s "$LAN_NET" -d "$MGMT_NET" -i "$LAN_IF" -o "$LAN_IF" -j ACCEPT
+iptables -A FORWARD -s "$MGMT_NET" -d "$LAN_NET" -i "$LAN_IF" -o "$LAN_IF" -j ACCEPT
+
+# NAT for VPN
+iptables -t nat -A POSTROUTING -s "$LAN_NET" -o "$VPN_IF" -j MASQUERADE
