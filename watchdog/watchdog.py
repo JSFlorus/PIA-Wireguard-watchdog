@@ -3,19 +3,9 @@ import subprocess
 import time
 from pathlib import Path
 
-BASE_DIR = Path("/opt/pia-wg-watchdog")
+from environment import ENV
+from generate_pia_conf import conf_generate
 
-PYTHON = BASE_DIR / "venv" / "bin" / "python"
-FETCH_CREDS = BASE_DIR / "scripts" / "fetch_wg0_creds.py"
-WG_GEN = BASE_DIR / "scripts" / "wg0-gen"
-WG_TABLES = BASE_DIR / "scripts" / "wg0-tables"
-WG_CONF = BASE_DIR / "configs" / "wg0.conf"
-
-CHECK_INTERVAL = 30
-MAX_FAILURES = 5
-SETUP_COOLDOWN = 300
-
-PING_TARGETS = ["1.1.1.1", "1.0.0.1"]
 
 last_repair = 0
 
@@ -41,7 +31,7 @@ def interface_exists(name: str) -> bool:
 
 
 def ping_ok() -> bool:
-    for target in PING_TARGETS:
+    for target in ENV.ping_target_list:
         result = subprocess.run(
             ["ping", "-c", "1", "-W", "3", target],
             stdout=subprocess.DEVNULL,
@@ -54,11 +44,46 @@ def ping_ok() -> bool:
     return False
 
 
+def dns_ok() -> bool:
+    resolv = Path("/etc/resolv.conf")
+
+    if not resolv.exists():
+        return False
+
+    for line in resolv.read_text().splitlines():
+        line = line.strip()
+
+        if not line or line.startswith("#"):
+            continue
+
+        return line == f"nameserver {ENV.vpn_dns}"
+
+    return False
+
+
+def ensure_dns() -> None:
+    expected = (
+        f"nameserver {ENV.vpn_dns}\n"
+        f"nameserver {ENV.fallback_dns}\n"
+    )
+
+    resolv = Path("/etc/resolv.conf")
+
+    try:
+        current = resolv.read_text()
+    except Exception:
+        current = ""
+
+    if current != expected:
+        print("Repairing DNS configuration", flush=True)
+        resolv.write_text(expected)
+
+
 def repair_wg0() -> bool:
     global last_repair
 
     now = time.time()
-    if now - last_repair < SETUP_COOLDOWN:
+    if now - last_repair < ENV.setup_cooldown:
         print("Repair skipped: cooldown active", flush=True)
         return False
 
@@ -67,25 +92,33 @@ def repair_wg0() -> bool:
     print("Repairing wg0...", flush=True)
 
     subprocess.run(
-        ["wg-quick", "down", str(WG_CONF)],
+        ["wg-quick", "down", str(ENV.wg_conf)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
 
-    if not run([str(PYTHON), str(FETCH_CREDS)]):
-        print("fetch_wg0_creds.py failed", flush=True)
+    try:
+        conf_generate()
+    except Exception as exc:
+        print(f"generate_pia_conf.py failed: {exc}", flush=True)
         return False
 
-    if not run([str(WG_GEN)]):
+    if not run([str(ENV.wg_gen)]):
         print("wg0-gen failed", flush=True)
         return False
 
-    if not run([str(WG_TABLES)]):
+    if not run([str(ENV.wg_tables)]):
         print("wg0-tables failed", flush=True)
         return False
 
-    if not run(["wg-quick", "up", str(WG_CONF)]):
+    if not run(["wg-quick", "up", str(ENV.wg_conf)]):
         print("wg-quick up failed", flush=True)
+        return False
+
+    ensure_dns()
+
+    if not dns_ok():
+        print("DNS validation failed", flush=True)
         return False
 
     if not ping_ok():
@@ -106,21 +139,25 @@ def main() -> None:
             print("wg0 interface missing", flush=True)
             repair_wg0()
             failures = 0
-            time.sleep(CHECK_INTERVAL)
+            time.sleep(ENV.check_interval)
             continue
+
+        if not dns_ok():
+            print("DNS configuration drift detected", flush=True)
+            ensure_dns()
 
         if ping_ok():
             failures = 0
             print("VPN check OK", flush=True)
         else:
             failures += 1
-            print(f"VPN check failed {failures}/{MAX_FAILURES}", flush=True)
+            print(f"VPN check failed {failures}/{ENV.max_failures}", flush=True)
 
-            if failures >= MAX_FAILURES:
+            if failures >= ENV.max_failures:
                 repair_wg0()
                 failures = 0
 
-        time.sleep(CHECK_INTERVAL)
+        time.sleep(ENV.check_interval)
 
 
 if __name__ == "__main__":

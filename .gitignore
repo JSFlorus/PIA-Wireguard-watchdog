@@ -1,17 +1,12 @@
-# secrets
+venv/
+__pycache__/
+*.pyc
 .env
 
-# runtime
-__pycache__/
-venv/
-*.log
-
 # generated configs
-*.conf
-configs/
+configs/*.conf
 
 # system junk
 .DS_Store
-# external dependency
-manual-connections/
 
+piavpn-manual/

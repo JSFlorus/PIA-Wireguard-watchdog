@@ -1,0 +1,31 @@
+#!/sbin/openrc-run
+
+name="PIA WireGuard Watchdog"
+description="Monitors and repairs WireGuard VPN connectivity"
+
+command="/opt/pia-wg-watchdog/venv/bin/python"
+command_args="/opt/pia-wg-watchdog/watchdog/watchdog.py"
+
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background="yes"
+output_log="/var/log/pia-wg-watchdog.log"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath --directory --mode 0755 /run
+}
+
+
+
+
+
+
+
+
+
+
+
