@@ -1,9 +1,14 @@
 #!/bin/sh
 set -eu
 
-SRC="/opt/pia-wg-watchdog/configs/wg0-creds.conf"
-OUT="/opt/pia-wg-watchdog/configs/wg0.conf"
-TMP="/opt/pia-wg-watchdog/configs/wg0.conf.tmp"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+WATCHDOG_DIR="$(dirname "$SCRIPT_DIR")"
+REPO_DIR="$(dirname "$WATCHDOG_DIR")"
+CONFIG_DIR="$REPO_DIR/configs"
+
+SRC="$CONFIG_DIR/wg0-creds.conf"
+OUT="$CONFIG_DIR/wg0.conf"
+TMP="$CONFIG_DIR/wg0.conf.tmp"
 
 [ -f "$SRC" ] || { echo "Missing $SRC"; exit 1; }
 
@@ -18,13 +23,40 @@ PSK="$(awk -F '= ' '/^PresharedKey/ {print $2}' "$SRC" || true)"
 : "${PUBLIC_KEY:?Missing PublicKey}"
 : "${ENDPOINT:?Missing Endpoint}"
 
-mkdir -p /opt/pia-wg-watchdog/configs
-chmod 700 /opt/pia-wg-watchdog/configs
+mkdir -p "$CONFIG_DIR"
+chmod 700 "$CONFIG_DIR"
 
 PSK_LINE=""
 if [ -n "${PSK:-}" ]; then
   PSK_LINE="PresharedKey = ${PSK}"
 fi
+: "${LAN_IF:?}"
+: "${LAN_GW:?}"
+: "${VPN_HOST:?}"
+: "${VPN_NET:?}"
+: "${VPN_DNS:?}"
+: "${LOCAL_NETS:?}"
+: "${OUTBOUND_NETS:?}"
+
+OUTBOUND_NETS_RULES=""
+priority=70
+
+for net in $OUTBOUND_NETS; do
+  OUTBOUND_NETS_RULES="${OUTBOUND_NETS_RULES}
+PostUp = ip rule del to ${net} lookup main priority ${priority} 2>/dev/null || true
+PostUp = ip rule add to ${net} lookup main priority ${priority}
+PostDown = ip rule del to ${net} lookup main priority ${priority} 2>/dev/null || true"
+  priority=$((priority + 1))
+done
+
+LOCAL_NETS_RULES=""
+
+for net in $LOCAL_NETS; do
+  LOCAL_NETS_RULES="${LOCAL_NETS_RULES}
+PostUp = ip route replace ${net} via ${LAN_GW} dev ${LAN_IF}
+PostDown = ip route del ${net} via ${LAN_GW} dev ${LAN_IF} 2>/dev/null || true"
+done
+
 
 cat >"$TMP" <<CONF
 [Interface]
@@ -33,28 +65,20 @@ MTU = 1380
 Address = ${ADDRESS}
 
 # keep gateway management on LAN
-PostUp = ip rule add from 10.10.2.2/32 lookup main priority 50
-PostDown = ip rule del from 10.10.2.2/32 lookup main priority 50 || true
+PostUp = ip rule del from ${VPN_HOST}/32 lookup main priority 50 2>/dev/null || true
+PostUp = ip rule add from ${VPN_HOST}/32 lookup main priority 50
+PostDown = ip rule del from ${VPN_HOST}/32 lookup main priority 50 2>/dev/null || true
 
 # PIA DNS must stay in tunnel
-PostUp = ip rule add to 10.0.0.243/32 lookup 51820 priority 60
-PostDown = ip rule del to 10.0.0.243/32 lookup 51820 priority 60 || true
+PostUp = ip rule del to ${VPN_DNS}/32 lookup 51820 priority 60 2>/dev/null || true
+PostUp = ip rule add to ${VPN_DNS}/32 lookup 51820 priority 60
+PostDown = ip rule del to ${VPN_DNS}/32 lookup 51820 priority 60 2>/dev/null || true
 
 # local networks must stay off VPN
-PostUp = ip rule add to 10.10.2.0/24 lookup main priority 70
-PostUp = ip rule add to 10.10.10.0/24 lookup main priority 71
-PostUp = ip rule add to 192.168.100.0/24 lookup main priority 72
-
-PostDown = ip rule del to 10.10.2.0/24 lookup main priority 70 || true
-PostDown = ip rule del to 10.10.10.0/24 lookup main priority 71 || true
-PostDown = ip rule del to 192.168.100.0/24 lookup main priority 72 || true
+${OUTBOUND_NETS_RULES}
 
 # explicit LAN routes in main table
-PostUp = ip route replace 10.10.0.0/16 via 10.10.2.1 dev eth0
-PostUp = ip route replace 192.168.100.0/24 via 10.10.2.1 dev eth0
-
-PostDown = ip route del 10.10.0.0/16 via 10.10.2.1 dev eth0 || true
-PostDown = ip route del 192.168.100.0/24 via 10.10.2.1 dev eth0 || true
+${LOCAL_NETS_RULES}
 
 [Peer]
 PublicKey = ${PUBLIC_KEY}

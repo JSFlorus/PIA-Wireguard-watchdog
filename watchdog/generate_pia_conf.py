@@ -38,8 +38,13 @@ def conf_generate() -> None:
 
     print(f"Generating PIA WireGuard config at {ENV.pia_conf}...", flush=True)
 
+    run_setup = ENV.manual_connections_dir / "run_setup.sh"
+
+    if not run_setup.exists():
+        raise SystemExit(f"Missing script: {run_setup}")
+
     result = subprocess.run(
-        ["./run_setup.sh"],
+        [str(run_setup)],
         cwd=ENV.manual_connections_dir,
         env=env,
         stdout=subprocess.PIPE,
@@ -65,3 +70,5 @@ def conf_generate() -> None:
     print(f"PIA WireGuard config ready: {ENV.pia_conf}", flush=True)
 
 
+if __name__ == "__main__":
+    conf_generate()

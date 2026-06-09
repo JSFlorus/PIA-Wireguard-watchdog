@@ -20,9 +20,6 @@ class Environment(BaseSettings):
     autoconnect: bool = Field(default=True, alias="AUTOCONNECT")
     preferred_region: str | None = Field(default=None, alias="PREFERRED_REGION", )
 
-    vpn_dns: str = Field(default="10.0.0.244", alias="VPN_DNS")
-    fallback_dns: str = Field(default="1.1.1.1", alias="FALLBACK_DNS")
-
     check_interval: int = Field(default=30, alias="CHECK_INTERVAL",)
 
     max_failures: int = Field(default=5,alias="MAX_FAILURES",)
@@ -31,6 +28,25 @@ class Environment(BaseSettings):
 
     ping_targets: str = Field(default="1.1.1.1,1.0.0.1",alias="PING_TARGETS",)
 
+    lan_if: str = Field(default="eth0", alias="LAN_IF")
+    vpn_if: str = Field(default="wg0", alias="VPN_IF")
+
+    lan_gw: str = Field(default="null", alias="LAN_GW")
+    vpn_net: str = Field(default="null", alias="VPN_NET")
+    vpn_host: str = Field(default="null", alias="VPN_HOST")
+
+    vpn_dns: str = Field(default="10.0.0.243", alias="VPN_DNS")
+    fallback_dns: str = Field(default="null", alias="FALLBACK_DNS")
+
+    local_nets: str = Field(
+        default="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16",
+        alias="LOCAL_NETS",
+    )
+
+    outbound_nets: str = Field(
+        default="null",
+        alias="OUTBOUND_NETS",
+    )
     # ---------- Derived paths ----------
 
     @property
@@ -55,7 +71,7 @@ class Environment(BaseSettings):
 
     @property
     def pia_conf(self) -> Path:
-        return self.config_dir / "pia.conf"
+        return self.config_dir / "wg0-creds.conf"
 
     @property
     def wg_conf(self) -> Path:
@@ -82,5 +98,4 @@ class Environment(BaseSettings):
             for target in self.ping_targets.split(",")
             if target.strip()
         ]
-
 ENV = Environment()

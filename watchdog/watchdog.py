@@ -2,7 +2,7 @@
 import subprocess
 import time
 from pathlib import Path
-
+import os
 from environment import ENV
 from generate_pia_conf import conf_generate
 
@@ -10,15 +10,17 @@ from generate_pia_conf import conf_generate
 last_repair = 0
 
 
-def run(cmd: list[str]) -> bool:
+def run(cmd: list[str], env: dict[str, str] | None = None) -> bool:
     print(f"Running: {' '.join(cmd)}", flush=True)
 
     result = subprocess.run(
         cmd,
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
     )
+
 
     if result.stdout:
         print(result.stdout, flush=True)
@@ -103,13 +105,25 @@ def repair_wg0() -> bool:
         print(f"generate_pia_conf.py failed: {exc}", flush=True)
         return False
 
-    if not run([str(ENV.wg_gen)]):
-        print("wg0-gen failed", flush=True)
-        return False
-
-    if not run([str(ENV.wg_tables)]):
+    env = os.environ.copy()
+    env.update(
+        {
+            "LAN_IF": ENV.lan_if,
+            "VPN_IF": ENV.vpn_if,
+            "LAN_GW": ENV.lan_gw,
+            "VPN_NET": ENV.vpn_net,
+            "VPN_HOST": ENV.vpn_host,
+            "VPN_DNS": ENV.vpn_dns,
+            "LOCAL_NETS": ENV.local_nets,
+            "OUTBOUND_NETS": ENV.outbound_nets,
+            "FALLBACK_DNS": ENV.fallback_dns,
+        }
+    )
+    
+    if not run([str(ENV.wg_tables)], env=env):
         print("wg0-tables failed", flush=True)
         return False
+
 
     if not run(["wg-quick", "up", str(ENV.wg_conf)]):
         print("wg-quick up failed", flush=True)
