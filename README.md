@@ -26,23 +26,6 @@ The watchdog continuously monitors VPN connectivity and automatically regenerate
 - Python 3.12+
 - PIA subscription
 
-## Project Structure
-
-```text
-PIA-Wireguard-watchdog/
-├── configs/
-├── manual-connections/
-├── services/
-│   └── pia-wg-watchdog.openrc
-├── venv/
-├── watchdog/
-│   ├── environment.py
-│   ├── generate_pia_conf.py
-│   ├── watchdog.py
-│   └── scripts/
-├── .env
-└── README.md
-```
 
 ## Installation
 
