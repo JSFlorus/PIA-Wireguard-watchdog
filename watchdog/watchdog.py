@@ -1,4 +1,5 @@
-#!/opt/pia-wg-watchdog/venv/bin/python
+#!/opt/PIA-Wireguard-watchdog/venv/bin/python
+
 import subprocess
 import time
 from pathlib import Path
@@ -123,7 +124,10 @@ def repair_wg0() -> bool:
     if not run([str(ENV.wg_tables)], env=env):
         print("wg0-tables failed", flush=True)
         return False
-
+        
+    if not run([str(ENV.wg_gen)], env=env):
+        print("wg0-tables failed", flush=True)
+        return False
 
     if not run(["wg-quick", "up", str(ENV.wg_conf)]):
         print("wg-quick up failed", flush=True)

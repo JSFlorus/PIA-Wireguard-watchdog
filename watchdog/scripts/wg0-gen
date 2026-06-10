@@ -37,6 +37,33 @@ fi
 : "${VPN_DNS:?}"
 : "${LOCAL_NETS:?}"
 : "${OUTBOUND_NETS:?}"
+: "${FALLBACK_DNS:?}"
+
+DNS_PORT_RULES="
+# fallback DNS stays on LAN/main
+PostUp = iptables -t mangle -D OUTPUT -p udp -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 50 2>/dev/null || true
+PostUp = iptables -t mangle -A OUTPUT -p udp -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 50
+PostUp = iptables -t mangle -D OUTPUT -p tcp -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 50 2>/dev/null || true
+PostUp = iptables -t mangle -A OUTPUT -p tcp -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 50
+
+PostUp = ip rule del fwmark 50 lookup main priority 45 2>/dev/null || true
+PostUp = ip rule add fwmark 50 lookup main priority 45
+
+# all other DNS goes through VPN table
+PostUp = iptables -t mangle -D OUTPUT -p udp ! -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 53 2>/dev/null || true
+PostUp = iptables -t mangle -A OUTPUT -p udp ! -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 53
+PostUp = iptables -t mangle -D OUTPUT -p tcp ! -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 53 2>/dev/null || true
+PostUp = iptables -t mangle -A OUTPUT -p tcp ! -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 53
+
+PostUp = ip rule del fwmark 53 lookup 51820 priority 46 2>/dev/null || true
+PostUp = ip rule add fwmark 53 lookup 51820 priority 46
+
+PostDown = iptables -t mangle -D OUTPUT -p udp -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 50 2>/dev/null || true
+PostDown = iptables -t mangle -D OUTPUT -p tcp -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 50 2>/dev/null || true
+PostDown = iptables -t mangle -D OUTPUT -p udp ! -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 53 2>/dev/null || true
+PostDown = iptables -t mangle -D OUTPUT -p tcp ! -d ${FALLBACK_DNS} --dport 53 -j MARK --set-mark 53 2>/dev/null || true
+PostDown = ip rule del fwmark 50 lookup main priority 45 2>/dev/null || true
+PostDown = ip rule del fwmark 53 lookup 51820 priority 46 2>/dev/null || true"
 
 OUTBOUND_NETS_RULES=""
 priority=70
@@ -69,10 +96,13 @@ PostUp = ip rule del from ${VPN_HOST}/32 lookup main priority 50 2>/dev/null || 
 PostUp = ip rule add from ${VPN_HOST}/32 lookup main priority 50
 PostDown = ip rule del from ${VPN_HOST}/32 lookup main priority 50 2>/dev/null || true
 
+# DNS port routing
+${DNS_PORT_RULES}
+
 # PIA DNS must stay in tunnel
-PostUp = ip rule del to ${VPN_DNS}/32 lookup 51820 priority 60 2>/dev/null || true
-PostUp = ip rule add to ${VPN_DNS}/32 lookup 51820 priority 60
-PostDown = ip rule del to ${VPN_DNS}/32 lookup 51820 priority 60 2>/dev/null || true
+PostUp = ip rule del to ${VPN_DNS}/32 lookup 51820 priority 40 2>/dev/null || true
+PostUp = ip rule add to ${VPN_DNS}/32 lookup 51820 priority 40
+PostDown = ip rule del to ${VPN_DNS}/32 lookup 51820 priority 40 2>/dev/null || true
 
 # local networks must stay off VPN
 ${OUTBOUND_NETS_RULES}
